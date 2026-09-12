@@ -1,0 +1,39 @@
+{
+  "name": "brand-ai-readiness-audit",
+  "version": "1.0.0",
+  "description": "Agent Skill Marketplace for auditing website AI discoverability and on-site engagement",
+  "skills": [
+    {
+      "id": "audit-orchestrator",
+      "path": "skills/audit-orchestrator",
+      "entrypoint": true,
+      "description": "Orchestrates all audit skills and produces the final audit report"
+    },
+    {
+      "id": "crawl-render-audit",
+      "path": "skills/crawl-render-audit",
+      "description": "Audits crawlability, rendering, and accessibility for AI crawlers"
+    },
+    {
+      "id": "structured-data-audit",
+      "path": "skills/structured-data-audit",
+      "description": "Audits structured data, meta tags, and machine-readable content"
+    },
+    {
+      "id": "freshness-corroboration",
+      "path": "skills/freshness-corroboration",
+      "description": "Audits content freshness, entity disambiguation, and web corroboration"
+    },
+    {
+      "id": "engagement-audit",
+      "path": "skills/engagement-audit",
+      "description": "Audits on-site engagement signals and content accessibility"
+    }
+  ],
+  "entrypoint": "audit-orchestrator",
+  "audit_schema": {
+    "required_fields": ["site", "audited_at", "summary", "findings"],
+    "finding_fields": ["id", "title", "severity", "evidence", "suggested_action"],
+    "severity_levels": ["critical", "high", "medium", "low"]
+  }
+}
