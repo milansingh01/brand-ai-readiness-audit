@@ -4,7 +4,9 @@ from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
-sys.path.insert(0, str(PROJECT_ROOT))
+
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 from shared.http_client import fetch_page
 from crawl_checks import run_checks
@@ -24,18 +26,32 @@ def main():
     try:
         response = fetch_page(url)
 
-    except Exception as e:
+    except Exception as error:
         print("\nFETCH OBSERVATION")
         print("=" * 60)
 
-        print(json.dumps({
-            "check": "http_access",
-            "found": True,
-            "evidence": str(e),
-            "details": {
-                "url": url
-            }
-        }, indent=2))
+        print(
+            json.dumps(
+                {
+                    "check": "CR-003",
+                    "status": "unverified",
+                    "evidence": (
+                        "The page could not be fetched by the "
+                        "current execution environment."
+                    ),
+                    "details": {
+                        "url": url,
+                        "error": str(error),
+                        "interpretation": (
+                            "Do not treat a local TLS, proxy, "
+                            "DNS, or tool failure as proof that "
+                            "the website blocks AI crawlers."
+                        )
+                    }
+                },
+                indent=2
+            )
+        )
 
         return
 
@@ -43,7 +59,10 @@ def main():
     print(f"Status    : {response.status_code}")
     print(f"Size      : {len(response.content)} bytes")
 
-    observations = run_checks(response.text, response)
+    observations = run_checks(
+        response.text,
+        response
+    )
 
     print("\nOBSERVATIONS")
     print("=" * 60)
@@ -53,7 +72,12 @@ def main():
         for observation in observations
     ]
 
-    print(json.dumps(output, indent=2))
+    print(
+        json.dumps(
+            output,
+            indent=2
+        )
+    )
 
 
 if __name__ == "__main__":

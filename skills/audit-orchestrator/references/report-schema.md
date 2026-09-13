@@ -1,6 +1,6 @@
 # Audit Report Schema
 
-The final audit report must contain:
+The final audit report must contain the following top-level fields:
 
 ## site
 
@@ -10,36 +10,19 @@ The audited website URL.
 
 Timestamp indicating when the audit was performed.
 
+Use an ISO 8601 timestamp.
+
 ## summary
 
 Counts of findings by severity.
 
-Example:
+The summary must contain:
 
+```json
 {
-  "critical": 2,
-  "high": 3,
-  "medium": 4,
-  "low": 1
+  "total_findings": 0,
+  "critical": 0,
+  "high": 0,
+  "medium": 0,
+  "low": 0
 }
-
-## findings
-
-Every finding should contain:
-
-- id
-- title
-- severity
-- evidence
-- suggested_action
-
-Optional fields may include:
-
-- priority
-- priority_reason
-- check
-- category
-
-The report must preserve evidence collected by the audit tools.
-
-The agent must not invent evidence that was not observed.

@@ -13,208 +13,149 @@ allowed-tools:
 ## When to Use
 
 Use this skill when:
+
 - Given a website URL to audit
-- Need to produce a comprehensive AI discoverability report
-- Must coordinate multiple audit checks into a single output
+- Need to produce a comprehensive AI discoverability and engagement report
+- Must coordinate multiple audit skills into a single output
 
 ## Inputs
 
-- **url** (required): The website URL to audit (e.g., "https://example.com")
-- **output_format** (optional): "json" (default) or "markdown"
+- **url** (required): The website URL to audit
+- **output_format** (optional): `json` (default) or `markdown`
 
 ## Procedure
 
 ### Step 1: Initialize Audit
 
-1. Validate the URL format
-2. Record audit timestamp in ISO 8601 format
-3. Initialize findings list
+1. Validate the URL format.
+2. Record the audit timestamp in ISO 8601 format.
+3. Initialize the observations and findings lists.
 
 ### Step 2: Invoke Sub-Skills
 
-Run each sub-skill in the marketplace and collect findings:
+Run each sub-skill independently and collect its observations.
 
-#### 2.1 Run crawl-render-audit
-```
-Skill: crawl-render-audit
-Input: url
-Expected Output: List of findings about crawlability, rendering, HTTP status
-Severity: Critical (NOINDEX, robots.txt, HTTP errors) and High (JS rendering, empty HTML)
-```
+Do not assume that every check is applicable to every website.
 
-#### 2.2 Run structured-data-audit
-```
-Skill: structured-data-audit
-Input: url
-Expected Output: List of findings about structured data, meta tags, headings
-Severity: Medium (missing JSON-LD, meta description) and High (poor headings)
-```
+Each sub-skill should distinguish between:
 
-#### 2.3 Run freshness-corroboration
-```
-Skill: freshness-corroboration
-Input: url
-Expected Output: List of findings about dates, entity disambiguation
-Severity: Medium (no freshness signals) and High (ambiguous identity)
-```
+- `pass` — the check was performed and no issue was found
+- `issue` — evidence indicates a real problem
+- `unverified` — the check could not be reliably evaluated
 
-#### 2.4 Run engagement-audit
-```
-Skill: engagement-audit
-Input: url
-Expected Output: List of findings about engagement signals, accessibility
-Severity: Medium (hidden content, alt text) and Low (mobile issues)
-```
+A failure in one sub-skill must not stop the remaining applicable sub-skills.
+
+### 2.1 Run crawl-render-audit
+
+Input: `url`
+
+Check:
+
+- HTTP accessibility
+- redirects
+- robots.txt
+- meta robots and X-Robots-Tag
+- server-readable HTML
+- JavaScript rendering dependence
+- canonical signals
+- important internal links
+- other crawl and rendering barriers
+
+### 2.2 Run structured-data-audit
+
+Input: `url`
+
+Check:
+
+- JSON-LD
+- structured data validity and consistency
+- metadata
+- heading structure
+- semantic machine-readable content
+- image accessibility signals
+
+### 2.3 Run freshness-corroboration
+
+Input: `url`
+
+Check:
+
+- freshness signals
+- entity identity
+- consistency across pages
+- contradictions
+- external corroboration where available
+
+### 2.4 Run engagement-audit
+
+Input: `url`
+
+Check:
+
+- navigation
+- content hierarchy
+- important hidden content
+- internal linking
+- interaction barriers
+- mobile signals
+- other factors affecting the visitor journey
+
+Do not create a finding merely because an optional feature is absent.
+
+Evaluate whether its absence materially affects AI discoverability, content interpretation, or user engagement.
 
 ### Step 3: Merge and Deduplicate
 
-1. Combine all findings from sub-skills
-2. Remove duplicates (same issue reported by multiple skills)
-3. Assign unique IDs: F-001, F-002, F-003, etc.
+1. Combine observations from all applicable sub-skills.
+2. Consider only observations marked `issue` when creating findings.
+3. Remove duplicate findings describing the same underlying problem.
+4. Do not merge findings that describe different problems merely because they affect the same area.
+5. Assign unique IDs such as `F-001`, `F-002`, `F-003`.
 
 ### Step 4: Prioritize Findings
 
-Prioritize findings using severity, impact, scope, evidence confidence, and
-the importance of the affected user/discovery journey.
+Prioritize findings using:
 
-Use severity as an important signal, but do not treat severity and priority
-as identical.
+- severity
+- impact
+- scope
+- evidence confidence
+- importance of the affected discovery or visitor journey
 
-Order the final findings primarily by recommended priority:
+Use severity as an important signal, but do not treat severity and priority as identical.
 
-1. **HIGH PRIORITY** — Major impact on AI discoverability or a core visitor
-   journey; broad or important scope; strong evidence; should be addressed soon.
+Order findings primarily by recommended priority:
 
-2. **MEDIUM PRIORITY** — Meaningful impact, but limited scope or moderate
-   effect on an important area; should be addressed after higher-impact issues.
-
-3. **LOW PRIORITY** — Minor impact, limited scope, or an optimization that
-   does not materially block discovery or engagement.
+1. **HIGH PRIORITY** — Major impact on AI discoverability or a core visitor journey; broad or important scope; strong evidence; should be addressed soon.
+2. **MEDIUM PRIORITY** — Meaningful impact, but limited scope or moderate effect on an important area.
+3. **LOW PRIORITY** — Minor impact, limited scope, or an optimization that does not materially block discovery or engagement.
 
 Severity should be assigned separately:
 
-1. **CRITICAL** — Site-wide or showstopper problem; severely prevents AI
-   discoverability or a core visitor journey.
-
+1. **CRITICAL** — Site-wide or showstopper problem that severely prevents AI discoverability or a core visitor journey.
 2. **HIGH** — Major problem affecting an important discovery or engagement path.
-
 3. **MEDIUM** — Significant but scoped problem with meaningful impact.
-
 4. **LOW** — Minor issue or optimization with limited impact.
 
-Do not assign severity or priority solely from the check name or observation.
-Consider the website's context, scope, impact, evidence confidence, and whether
-the behavior may be intentional.
+Do not assign severity or priority solely from the check name.
 
-If evidence is insufficient, mark the check as unverified rather than creating
-a low-confidence finding.
+Consider the website's context, scope, impact, evidence confidence, and whether the behavior may be intentional.
 
-Within the same priority level, order findings by severity and then by impact.
+If evidence is insufficient, mark the check as `unverified` rather than creating a low-confidence finding.
+
+Within the same priority level, order findings by severity and then impact.
 
 ### Step 5: Generate Summary
 
-Count findings by severity:
-```json
-{
-  "total_findings": 10,
-  "critical": 2,
-  "high": 3,
-  "medium": 4,
-  "low": 1
-}
-```
+Count findings by severity.
 
-### Step 6: Add Proactive Suggestions
-
-Beyond fixing detected problems, suggest proactive improvements:
-- Add JSON-LD structured data (even if not broken)
-- Create Wikipedia/Wikidata entry (if missing)
-- Build content strategy for corroboration
-- Optimize for featured snippets
-
-### Step 7: Emit Final Report
-
-Generate the audit report in the required JSON schema:
+The summary must contain:
 
 ```json
 {
-  "site": "example.com",
-  "audited_at": "2026-09-20T14:32:00Z",
-  "summary": {
-    "total_findings": 6,
-    "critical": 1,
-    "high": 2,
-    "medium": 3
-  },
-  "findings": [
-    {
-      "id": "F-001",
-      "title": "No JSON-LD structured data on product pages",
-      "severity": "high",
-      "evidence": "Crawled 12 product pages; 0/12 contain schema.org markup.",
-      "suggested_action": {
-        "summary": "Add Product/Offer JSON-LD to every product page.",
-        "priority": "high"
-      }
-    }
-  ]
+  "total_findings": 0,
+  "critical": 0,
+  "high": 0,
+  "medium": 0,
+  "low": 0
 }
-```
-
-## Output
-
-Returns a JSON object with:
-- **site**: Domain name
-- **audited_at**: ISO 8601 timestamp
-- **summary**: Counts by severity
-- **findings**: Array of finding objects
-
-## Examples
-
-### Example 1: Basic Audit
-```
-Input: "https://example.com"
-Output: {
-  "site": "example.com",
-  "audited_at": "2026-09-20T14:32:00Z",
-  "summary": {"total_findings": 5, "critical": 0, "high": 2, "medium": 3, "low": 0},
-  "findings": [...]
-}
-```
-
-### Example 2: Site with Critical Issues
-```
-Input: "https://problem-site.com"
-Output: {
-  "site": "problem-site.com",
-  "audited_at": "2026-09-20T14:35:00Z",
-  "summary": {"total_findings": 8, "critical": 2, "high": 3, "medium": 2, "low": 1},
-  "findings": [
-    {
-      "id": "F-001",
-      "title": "Meta robots NOINDEX detected",
-      "severity": "critical",
-      "evidence": "Found <meta name=\"robots\" content=\"noindex\"> on homepage",
-      "suggested_action": {
-        "summary": "Remove noindex directive or change to 'index, follow'",
-        "priority": "critical"
-      }
-    },
-    ...
-  ]
-}
-```
-
-## Error Handling
-
-- **Invalid URL:** Return error message, do not proceed
-- **Timeout (>5 min):** Return partial results with warning
-- **Sub-skill failure:** Continue with remaining skills, note failure in report
-- **No findings:** Return success message "No issues found - site appears well-optimized"
-
-## Notes
-
-- This is the entrypoint skill - it coordinates others but does not perform checks itself
-- All sub-skills are in the same marketplace
-- Output must follow the exact JSON schema specified in marketplace.json
-- Be thorough but concise - actionable insights over verbose explanations

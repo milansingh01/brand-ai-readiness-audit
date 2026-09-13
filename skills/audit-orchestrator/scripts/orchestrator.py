@@ -33,12 +33,8 @@ def load_module(module_name, file_path):
     """
     Load a Python module directly from its file path.
 
-    This is necessary because our skill directories contain
-    hyphens, for example:
-
-        crawl-render-audit
-
-    which cannot be used directly as a Python import name.
+    Skill directories contain hyphens, so they cannot be imported
+    directly as normal Python package names.
     """
 
     spec = importlib.util.spec_from_file_location(
@@ -52,7 +48,6 @@ def load_module(module_name, file_path):
         )
 
     module = importlib.util.module_from_spec(spec)
-
     spec.loader.exec_module(module)
 
     return module
@@ -66,7 +61,6 @@ crawl_checks = load_module(
     / "crawl_checks.py"
 )
 
-
 structured_checks = load_module(
     "structured_checks",
     SKILLS_ROOT
@@ -75,7 +69,6 @@ structured_checks = load_module(
     / "structured_checks.py"
 )
 
-
 freshness_checks = load_module(
     "freshness_checks",
     SKILLS_ROOT
@@ -83,7 +76,6 @@ freshness_checks = load_module(
     / "scripts"
     / "freshness_checks.py"
 )
-
 
 engagement_checks = load_module(
     "engagement_checks",
@@ -100,18 +92,81 @@ engagement_checks = load_module(
 
 def observation_to_dict(observation):
     """
-    Convert an Observation object into a normal dictionary.
+    Convert an Observation object or dictionary into a normal
+    dictionary and normalize observations to the tri-state model:
+
+        pass
+        issue
+        unverified
+
+    Older implementations may still return `found`.
+    That value is converted for compatibility.
     """
 
     if hasattr(observation, "to_dict"):
-        return observation.to_dict()
+        observation = observation.to_dict()
 
-    if isinstance(observation, dict):
-        return observation
+    if not isinstance(observation, dict):
+        raise TypeError(
+            f"Unsupported observation type: {type(observation)}"
+        )
 
-    raise TypeError(
-        f"Unsupported observation type: {type(observation)}"
-    )
+    result = dict(observation)
+
+    # --------------------------------------------------------
+    # Normalize old `found` representation
+    # --------------------------------------------------------
+
+    if "status" not in result:
+        if "found" in result:
+            result["status"] = (
+                "issue" if result["found"] else "pass"
+            )
+        else:
+            result["status"] = "unverified"
+
+    # `status` is authoritative.
+    result["status"] = str(
+        result["status"]
+    ).lower()
+
+    if result["status"] not in {
+        "pass",
+        "issue",
+        "unverified"
+    }:
+        result["status"] = "unverified"
+
+    # Preserve `found` for compatibility with older scripts.
+    if "found" not in result:
+        result["found"] = (
+            result["status"] == "issue"
+        )
+
+    return result
+
+
+def unverified_observation(check, error, url):
+    """
+    Create an observation for a check that could not be
+    reliably evaluated.
+
+    An execution failure is NOT treated as evidence of a
+    website problem.
+    """
+
+    return {
+        "check": check,
+        "status": "unverified",
+        "found": False,
+        "evidence": (
+            "The check could not be reliably evaluated."
+        ),
+        "details": {
+            "url": url
+        },
+        "error": str(error)
+    }
 
 
 # ============================================================
@@ -120,8 +175,7 @@ def observation_to_dict(observation):
 
 def run_crawl_audit(html, response):
     """
-    Run the crawl-render audit using the existing
-    crawl_checks.py implementation.
+    Run the crawl-render audit using the crawl implementation.
     """
 
     observations = crawl_checks.run_checks(
@@ -160,7 +214,10 @@ def run_structured_data_audit(html):
 
 def run_freshness_audit(html):
     """
-    Run the freshness/corroboration audit.
+    Run the freshness/corroboration evidence collection.
+
+    Cross-source corroboration and contextual interpretation
+    remain agent-level reasoning tasks.
     """
 
     observations = freshness_checks.run_checks(
@@ -179,7 +236,7 @@ def run_freshness_audit(html):
 
 def run_engagement_audit(html):
     """
-    Run the engagement audit.
+    Run the engagement evidence collection.
     """
 
     observations = engagement_checks.run_checks(
@@ -198,31 +255,17 @@ def run_engagement_audit(html):
 
 def collect_observations(url):
     """
-    Execute all audit skills and collect their observations.
+    Execute all applicable audit skills independently.
 
     Important:
-    The skills detect objective facts.
 
-    They do NOT decide:
-        - severity
-        - priority
-        - final suggested action
-
-    Those decisions belong to the agent/orchestration layer.
+    - Skills collect evidence.
+    - Skills do not assign final severity.
+    - Skills do not assign final priority.
+    - Skills do not invent suggested actions.
+    - Failed checks become `unverified`.
+    - One failed skill must not stop other applicable skills.
     """
-
-    # --------------------------------------------------------
-    # Fetch website once
-    # --------------------------------------------------------
-
-    response = fetch_page(url)
-
-    html = response.text
-
-
-    # --------------------------------------------------------
-    # Results container
-    # --------------------------------------------------------
 
     results = {
         "crawl-render-audit": [],
@@ -231,181 +274,229 @@ def collect_observations(url):
         "engagement-audit": []
     }
 
+    # --------------------------------------------------------
+    # Fetch website once
+    # --------------------------------------------------------
+
+    try:
+        response = fetch_page(url)
+        html = response.text
+    except Exception as error:
+        # No reliable page content is available.
+        #
+        # This is an access limitation, not automatically a
+        # finding about the website.
+        access_error = unverified_observation(
+            "website_access",
+            error,
+            url
+        )
+
+        results["crawl-render-audit"] = [
+            access_error
+        ]
+
+        for skill_name, check_name in [
+            (
+                "structured-data-audit",
+                "structured_execution"
+            ),
+            (
+                "freshness-corroboration",
+                "freshness_execution"
+            ),
+            (
+                "engagement-audit",
+                "engagement_execution"
+            )
+        ]:
+            results[skill_name] = [
+                unverified_observation(
+                    check_name,
+                    "Page content was unavailable, so this skill could not be reliably evaluated.",
+                    url
+                )
+            ]
+
+        return results
 
     # --------------------------------------------------------
     # Crawl / Render
     # --------------------------------------------------------
 
     try:
-
         results["crawl-render-audit"] = run_crawl_audit(
             html,
             response
         )
-
-    except Exception as e:
-
+    except Exception as error:
         results["crawl-render-audit"] = [
-            {
-                "check": "crawl_execution",
-                "found": True,
-                "evidence": str(e),
-                "details": {
-                    "url": url
-                }
-            }
+            unverified_observation(
+                "crawl_execution",
+                error,
+                url
+            )
         ]
-
 
     # --------------------------------------------------------
     # Structured Data
     # --------------------------------------------------------
 
     try:
-
         results["structured-data-audit"] = (
             run_structured_data_audit(html)
         )
-
-    except Exception as e:
-
+    except Exception as error:
         results["structured-data-audit"] = [
-            {
-                "check": "structured_execution",
-                "found": True,
-                "evidence": str(e),
-                "details": {
-                    "url": url
-                }
-            }
+            unverified_observation(
+                "structured_execution",
+                error,
+                url
+            )
         ]
-
 
     # --------------------------------------------------------
     # Freshness
     # --------------------------------------------------------
 
     try:
-
         results["freshness-corroboration"] = (
             run_freshness_audit(html)
         )
-
-    except Exception as e:
-
+    except Exception as error:
         results["freshness-corroboration"] = [
-            {
-                "check": "freshness_execution",
-                "found": True,
-                "evidence": str(e),
-                "details": {
-                    "url": url
-                }
-            }
+            unverified_observation(
+                "freshness_execution",
+                error,
+                url
+            )
         ]
-
 
     # --------------------------------------------------------
     # Engagement
     # --------------------------------------------------------
 
     try:
-
         results["engagement-audit"] = (
             run_engagement_audit(html)
         )
-
-    except Exception as e:
-
+    except Exception as error:
         results["engagement-audit"] = [
-            {
-                "check": "engagement_execution",
-                "found": True,
-                "evidence": str(e),
-                "details": {
-                    "url": url
-                }
-            }
+            unverified_observation(
+                "engagement_execution",
+                error,
+                url
+            )
         ]
-
 
     return results
 
 
 # ============================================================
-# TEMPORARY REPORT BUILDER
+# OBSERVATION SUMMARY
 # ============================================================
 
-def build_report(url, observations):
+def flatten_observations(observations):
     """
-    Build the marketplace report.
+    Flatten skill observations while preserving their source.
 
-    At this stage observations are exposed so we can verify
-    that all four skills actually executed.
-
-    Severity/action interpretation will be added by the agent
-    in the next stage.
+    This is useful for inspection and for the agent-level
+    interpretation stage.
     """
 
-    all_observations = []
-
+    flattened = []
 
     for skill_name, skill_observations in observations.items():
-
         for observation in skill_observations:
-
-            # Only expose observations where the detector
-            # actually found something.
-            if not observation.get("found", False):
-                continue
-
-            all_observations.append(
+            flattened.append(
                 {
                     "skill": skill_name,
                     **observation
                 }
             )
 
+    return flattened
+
+
+# ============================================================
+# REPORT BUILDER
+# ============================================================
+
+def build_report(url, findings=None):
+    """
+    Build the final report structure required by the marketplace.
+
+    The deterministic scripts do not decide findings, severity,
+    priority, or suggested actions. Those are interpretation
+    decisions made by the agent/orchestrator.
+
+    Therefore this function accepts interpreted findings rather
+    than creating findings directly from raw observations.
+    """
+
+    findings = findings or []
+
+    counts = {
+        "critical": 0,
+        "high": 0,
+        "medium": 0,
+        "low": 0
+    }
+
+    for finding in findings:
+        severity = str(
+            finding.get("severity", "")
+        ).lower()
+
+        if severity in counts:
+            counts[severity] += 1
 
     return {
         "site": url,
-
         "audited_at": datetime.now(
             timezone.utc
         ).isoformat(),
-
         "summary": {
-            "critical": 0,
-            "high": 0,
-            "medium": 0,
-            "low": 0
+            "total_findings": len(findings),
+            "critical": counts["critical"],
+            "high": counts["high"],
+            "medium": counts["medium"],
+            "low": counts["low"]
         },
-
-        "findings": [],
-
-        # Temporary developer field.
-        # This lets us verify the complete pipeline.
-        "observations": all_observations
+        "findings": findings
     }
 
 
 # ============================================================
-# MARKETPLACE ENTRYPOINT
+# MARKETPLACE ENTRYPOINT / TEST HARNESS
 # ============================================================
 
 def run_audit(url):
     """
-    Main entrypoint called by main.py.
+    Run the deterministic evidence-collection pipeline.
+
+    The returned object contains:
+        - observations for agent interpretation
+        - a schema-compatible empty report
+
+    In the actual Agent Skills workflow, the agent uses the
+    observations to interpret issues, deduplicate them, assign
+    severity/priority, and produce the final report.
     """
 
     observations = collect_observations(url)
 
     report = build_report(
         url,
-        observations
+        findings=[]
     )
 
-    return report
+    return {
+        "report": report,
+        "observations": flatten_observations(
+            observations
+        )
+    }
 
 
 # ============================================================
@@ -415,25 +506,18 @@ def run_audit(url):
 if __name__ == "__main__":
 
     if len(sys.argv) != 2:
-
         print(
-            "Usage:"
+            "Usage: python orchestrator.py https://example.com"
         )
-
-        print(
-            "python orchestrator.py https://example.com"
-        )
-
         sys.exit(1)
-
 
     url = sys.argv[1]
 
-    report = run_audit(url)
+    result = run_audit(url)
 
     print(
         json.dumps(
-            report,
+            result,
             indent=2
         )
     )
