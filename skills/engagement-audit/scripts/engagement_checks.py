@@ -194,7 +194,7 @@ def check_link_context(html: str) -> Observation:
     )
 
 
-def run_checks(html: str, url=None):
+def run_checks(html:str, url=None):
 
     return [
         check_ctas(html),
